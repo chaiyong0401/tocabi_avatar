@@ -1,6 +1,17 @@
 #include "avatar.h"
 #include <fstream>
+#include <random>
 using namespace TOCABI;
+
+ros::Publisher haedong_check_pub;
+std_msgs::Bool haedong_check_msg_;
+ros::Publisher new_cup_pos_mcy_pub;
+geometry_msgs::Point new_cup_pos_mcy_msg_;
+std::default_random_engine generator;
+ros::Subscriber new_cup_pos_command_sub;
+int new_cup_pos_command;
+
+
 
 // ofstream MJ_graph("/home/dyros/data/myeongju/MJ_graph.txt");
 // ofstream MJ_graph1("/home/dyros/data/myeongju/MJ_graph1.txt");
@@ -62,7 +73,9 @@ AvatarController::AvatarController(RobotData &rd) : rd_(rd)
     pedal_command = nh_avatar_.subscribe("/tocabi/pedalcommand", 100, &AvatarController::PedalCommandCallback, this); //MJ
 
     //opto_ftsensor_sub = nh_avatar_.subscribe("/atiforce/ftsensor", 100, &AvatarController::OptoforceFTCallback, this); // real robot experiment
-
+    haedong_check_pub =nh_avatar_.advertise<std_msgs::Bool>("/haedong_check",1);
+    new_cup_pos_mcy_pub = nh_avatar_.advertise<geometry_msgs::Point>("/new_cup_pos_mcy",1);
+    new_cup_pos_command_sub = nh_avatar_.subscribe("/new_cup_pos_command",1, &AvatarController::NewcupCommandCallback,this);
     bool urdfmode = false;
     std::string urdf_path, desc_package_path;
     ros::param::get("/tocabi_controller/urdf_path", desc_package_path);
@@ -97,6 +110,12 @@ AvatarController::AvatarController(RobotData &rd) : rd_(rd)
     first_loop_qp_retargeting_ = true;
     first_loop_camhqp_ = true;
 }
+
+double getRandomPosition(double minValue, double maxValue) 
+        {
+            std::uniform_real_distribution<double> distribution(minValue, maxValue);
+            return distribution(generator);
+        }
 
 void AvatarController::setGains()
 {
@@ -551,14 +570,18 @@ void AvatarController::setNeuralNetworks()
     n_hidden << 120, 100, 80, 60, 40, 20;
     q_to_input_mapping_vector << 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24;
     initializeScaMlp(larm_upperbody_sca_mlp_, 13, 2, n_hidden, q_to_input_mapping_vector);
-    loadScaNetwork(larm_upperbody_sca_mlp_, "/home/dyros/catkin_ws/src/tocabi_avatar/sca_mlp/larm_upperbody/");
+    // loadScaNetwork(larm_upperbody_sca_mlp_, "/home/dyros/catkin_ws/src/tocabi_avatar/sca_mlp/larm_upperbody/");
+    // loadScaNetwork(larm_upperbody_sca_mlp_, "/home/dyros/avatar_ws/src/tocabi_avatar/sca_mlp/larm_upperbody/");
+    loadScaNetwork(larm_upperbody_sca_mlp_, "/home/embodied_ai/mcy/avatar_ws/src/tocabi_avatar/sca_mlp/larm_upperbody/");
     //////////////////////////////////////////////////////////////////////////////
 
     ///// Between Right Arm and Upperbody & Head Collision Detection Network /////
     n_hidden << 120, 100, 80, 60, 40, 20;
     q_to_input_mapping_vector << 12, 13, 14, 25, 26, 27, 28, 29, 30, 31, 32, 23, 24;
     initializeScaMlp(rarm_upperbody_sca_mlp_, 13, 2, n_hidden, q_to_input_mapping_vector);
-    loadScaNetwork(rarm_upperbody_sca_mlp_, "/home/dyros/catkin_ws/src/tocabi_avatar/sca_mlp/rarm_upperbody/");
+    // loadScaNetwork(rarm_upperbody_sca_mlp_, "/home/dyros/catkin_ws/src/tocabi_avatar/sca_mlp/rarm_upperbody/");
+    // loadScaNetwork(rarm_upperbody_sca_mlp_, "/home/dyros/avatar_ws/src/tocabi_avatar/sca_mlp/rarm_upperbody/");
+    loadScaNetwork(rarm_upperbody_sca_mlp_, "/home/embodied_ai/mcy/avatar_ws/src/tocabi_avatar/sca_mlp/rarm_upperbody/");
     //////////////////////////////////////////////////////////////////////////////
 
     ///// Between Arms Collision Detection Network /////
@@ -873,7 +896,9 @@ void AvatarController::computeSlow()
             parameterSetting();
             initWalkingParameter();
             // updateInitialStateJoy();
-            loadCollisionThreshold("/home/dyros/catkin_ws/src/tocabi_avatar/config/");
+            // loadCollisionThreshold("/home/dyros/catkin_ws/src/tocabi_avatar/config/");
+            // loadCollisionThreshold("/home/dyros/avatar_ws/src/tocabi_avatar/config/");
+            loadCollisionThreshold("/home/embodied_ai/mcy/avatar_ws/src/tocabi_avatar/config/");
             cout << "mode = 12 : Pedal Init" << endl;
             cout << "chair_mode_: " << chair_mode_ << endl;
             cout << "ref_q_: "<<ref_q_.transpose() << endl;
@@ -890,10 +915,28 @@ void AvatarController::computeSlow()
             atb_grav_update_ = false;
         }
 
+        // original
         for (int i = 0; i < MODEL_DOF; i++)
         {
             rd_.torque_desired(i) = Kp(i) * (ref_q_(i) - rd_.q_(i)) - Kd(i) * rd_.q_dot_(i) + 1.0 * Gravity_MJ_(i);
         }
+        // std::cout << "Size of torque_desired: " << rd_.torque_desired.size() << std::endl;
+        // std::cout << "Size of Kp: " << Kp.size() << std::endl;
+        // std::cout << "Size of ref_q_: " << ref_q_.size() << std::endl;
+        // std::cout << "Size of rd_.q_: " << rd_.q_.size() << std::endl;
+        // std::cout << "Size of Kd: " << Kd.size() << std::endl;
+        // std::cout << "Size of rd_.q_dot_: " << rd_.q_dot_.size() << std::endl;
+        // std::cout << "Size of Gravity_MJ_: " << Gravity_MJ_.size() << std::endl;
+
+
+        // for (int i = 0; i < 23; i++)
+        // {
+        //     rd_.torque_desired(i) = Kp(i) * (ref_q_(i) - rd_.q_(i)) - Kd(i) * rd_.q_dot_(i) + 1.0 * Gravity_MJ_(i);
+        // }
+        // for (int i = 43; i< 53;i++)
+        // {
+        //     rd_.torque_desired(i) = Kp(i-20) * (ref_q_(i-20) - rd_.q_(i-20)) - Kd(i-20) * rd_.q_dot_(i-20) + 1.0 * Gravity_MJ_(i-20);
+        // }
 
         // for chair mode
         if (chair_mode_)
@@ -904,7 +947,7 @@ void AvatarController::computeSlow()
                 rd_.torque_desired(i) = 0;
             }
         }
-
+        // sleep(5);
         // mode_12_count_ ++;
 
         // if( (initial_flag == 2) && (mode_12_count_ > 1000) )
@@ -1376,11 +1419,11 @@ void AvatarController::computeFast()
     else if (rd_.tc_.mode == 12)
     {
         if (initial_flag == 1)
-        {
+        {   
+            // sleep(3); // 위에서 문제 달성 
             WBC::SetContact(rd_, 1, 1);
 
             VectorQd Gravity_MJ_local = WBC::ContactForceRedistributionTorqueWalking(rd_, WBC::GravityCompensationTorque(rd_), 0.9, 1, 0);
-
             // // MOB-LSTM INFERENCE
             // initializeLegLSTM(left_leg_mob_lstm_);
             // loadLstmWeights(left_leg_mob_lstm_, "/home/dyros/catkin_ws/src/tocabi_avatar/lstm_tocabi/weights/left_leg/left_leg_tocabi_model_vel_ft_wo_quat_only_ground_data/");
@@ -2293,6 +2336,7 @@ void AvatarController::initWalkingParameter()
     hmd_tracker_status_ = false;
     hmd_tracker_status_raw_ = false;
     hmd_tracker_status_pre_ = false;
+    new_cup_pos_command = 0;
 
     // hmd_tracker_status_ = true;
     // hmd_tracker_status_raw_ = true;f
@@ -3353,10 +3397,14 @@ void AvatarController::motionGenerator()
         {
             if (upperbody_mode_recieved_ == true)
             {
-                cout << "Upperbody Mode is Changed to #10 (3D Mouse Mode)" << endl;
+                cout << "Upperbody Mode is Changed to #10 (3D Mouse Mode) 1" << endl;
+                cout << "mcy" << endl;
 
                 first_loop_hqpik_ = true;
                 first_loop_qp_retargeting_ = true;
+                haedong_check_msg_.data = true;
+                haedong_check_pub.publish(haedong_check_msg_);
+
 
                 std_msgs::String msg;
                 std::stringstream upperbody_mode_ss;
@@ -3366,8 +3414,13 @@ void AvatarController::motionGenerator()
                 calibration_state_gui_log_pub.publish(msg);
             }
 
-            rawMasterPoseProcessing();
+            rawMasterPoseProcessing(); // mode 10 send 했을 때 고개 들고, 손이 돌아가는 부분 
+            // cout << "rawMasterPoseProcessing check " << endl;
+            // sleep(5);
             motionRetargeting_HQPIK();
+            // cout << "motionRetargeting_HQPIK check" << endl;
+            // sleep(5);
+            
             // motionRetargeting_HQPIK_lexls();
             // motionRetargeting_QPIK_upperbody();
             // if (int(current_time_ * 10000) % 10000 == 0)
@@ -5815,7 +5868,7 @@ void AvatarController::rawMasterPoseProcessing()
         upperbody_command_time_ = current_time_;
         upperbody_mode_q_init_ = motion_q_pre_;
 
-        master_lhand_pose_ = lhand_transform_current_from_global_;
+        master_lhand_pose_ = lhand_transform_current_from_global_;  // 왼손, 오른손의 현재 위치 및 자세
         master_rhand_pose_ = rhand_transform_current_from_global_;
 
         master_lhand_pose_pre_ = lhand_transform_pre_desired_from_;
@@ -5904,7 +5957,7 @@ void AvatarController::rawMasterPoseProcessing()
         ////////////////////////////////////////////////////
     }
 
-    orientationRetargeting();
+    orientationRetargeting();        // 해당 코드를 주석 처리해주면 머리 처들기랑 손 돌아가는 것이 사라짐. 
     //////////////1025////////////////////////
     // master_lhand_pose_raw_ = master_lhand_pose_pre_;
     // master_rhand_pose_raw_ = master_rhand_pose_pre_;
@@ -6269,10 +6322,13 @@ void AvatarController::orientationRetargeting()
     chest_diff_m = Eigen::AngleAxisd(chest_ang_diff.angle() * 1.0, chest_ang_diff.axis());
     // master_upperbody_pose_raw_.linear() = chest_diff_m * robot_upperbody_ori_init;
     master_upperbody_pose_raw_.linear() = hmd_chest_pose_.linear()*hmd_chest_pose_init_.linear().transpose()*robot_upperbody_ori_init;
-
+    
+    /////// master_lhand_pose_raw_.linear, master_rhand_pose_raw.linear() 주석처리 해제
     master_lhand_pose_raw_.linear() = hmd_lhand_pose_.linear() * DyrosMath::rotateWithZ(M_PI / 2); // absolute orientation
 
     master_rhand_pose_raw_.linear() = hmd_rhand_pose_.linear() * DyrosMath::rotateWithZ(-M_PI / 2); // absolute orientation
+    // master_lhand_pose_raw_.linear() = hmd_lhand_pose_.linear() * DyrosMath::rotateWithZ(M_PI); // MCY
+    // master_rhand_pose_raw_.linear() = hmd_rhand_pose_.linear() * DyrosMath::rotateWithZ(M_PI); // MCY
 
     master_lelbow_pose_raw_.translation().setZero();
     master_lelbow_pose_raw_.linear() = hmd_lupperarm_pose_.linear() * hmd_lupperarm_pose_init_.linear().transpose() * robot_lelbow_ori_init;
@@ -6291,7 +6347,7 @@ void AvatarController::orientationRetargeting()
     hmd_head_displacement(1) = DyrosMath::minmax_cut(hmd_head_displacement(1), -0.15, +0.15);
 
     master_head_pose_raw_.translation() = hmd_head_displacement;
-    master_head_pose_raw_.translation()(0) += 0.10;
+    // master_head_pose_raw_.translation()(0) += 0.10;
     master_head_pose_raw_.linear() = hmd_head_pose_.linear() * hmd_head_pose_init_.linear().transpose() * robot_head_ori_init;
 
     // master_head_pose_raw_.linear() = hmd_head_pose_.linear();
@@ -9110,6 +9166,40 @@ void AvatarController::printOutTextFile()
     }
 
     printout_cnt_ += 1;
+}
+
+void AvatarController::NewcupCommandCallback(const std_msgs::Int8 &msg)
+{
+    new_cup_pos_command = msg.data;
+    if(new_cup_pos_command == 1)
+    {
+    // new cup pose generate
+        const double minX = -0.1;
+        const double maxX = 0.1;
+        const double minY = -0.3;
+        const double maxY = 0.3;
+        // new_cup_pos_mcy_msg_.x = getRandomPosition(minX,maxX);
+        // new_cup_pos_mcy_msg_.y = getRandomPosition(minY,maxY);
+        new_cup_pos_mcy_msg_.x = 0.1;
+        new_cup_pos_mcy_msg_.y = 0;
+        new_cup_pos_mcy_msg_.z = 0;
+        new_cup_pos_mcy_pub.publish(new_cup_pos_mcy_msg_);
+        new_cup_pos_command = 0;
+    }
+    if(new_cup_pos_command ==2){
+        new_cup_pos_mcy_msg_.x = 0;
+        new_cup_pos_mcy_msg_.y = 0;
+        new_cup_pos_mcy_msg_.z = 0.05;
+        new_cup_pos_mcy_pub.publish(new_cup_pos_mcy_msg_);
+        new_cup_pos_command = 0;
+    }
+    if(new_cup_pos_command ==3){
+        new_cup_pos_mcy_msg_.x = 0;
+        new_cup_pos_mcy_msg_.y = 1.0;
+        new_cup_pos_mcy_msg_.z = 0;
+        new_cup_pos_mcy_pub.publish(new_cup_pos_mcy_msg_);
+        new_cup_pos_command = 0;
+    }
 }
 
 //////////////////////////////MJ's Functions////////////////////

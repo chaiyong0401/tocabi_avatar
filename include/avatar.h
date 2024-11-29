@@ -265,6 +265,7 @@ public:
     void HmdCallback(const tocabi_msgs::matrix_3_4 &msg);
     void PoseCalibrationCallback(const std_msgs::Int8 &msg);
     void TrackerStatusCallback(const std_msgs::Bool &msg);
+    void NewcupCommandCallback(const std_msgs::Int8 &msg);
 
     void TrackerPoseCallback(const geometry_msgs::PoseArray &msg);
 
@@ -661,7 +662,7 @@ public:
     double tracker_status_changed_time_;
     
     bool master_arm_mode_ = true;
-    bool real_robot_mode_ = true;
+    bool real_robot_mode_ = false;
 
     double hmd_larm_max_l_;
     double hmd_rarm_max_l_;
